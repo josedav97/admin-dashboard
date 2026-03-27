@@ -1,6 +1,14 @@
 const express = require('express');
 const cors = require('cors');
+const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const User = require('./models/User.js');
+const mongoose = require('mongoose');
+require('dotenv').config();
+
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log('✅ MongoDB conectado'))
+  .catch((err) => console.log('❌ Error:', err.message));  // 👈 muestra solo el mensaje
 
 const app = express();
 const SECRET = 'secreto123';
@@ -25,33 +33,55 @@ const verifyToken = (req, res, next) => {
 };
 
 // ── RUTAS PÚBLICAS ──────────────────────────────────────
-let users = [];
 
 app.get('/', (req, res) => {
   res.send('API funcionando 🚀');
 });
 
-app.post('/register', (req, res) => {
+app.post('/register', async (req, res) => {
   const { email, password } = req.body;
-  const userExists = users.find(u => u.email === email);
+
+  const userExists = await User.findOne({ email });
 
   if (userExists) {
     return res.status(400).json({ message: 'Usuario ya existe' });
   }
 
-  users.push({ email, password });
+  // 🔐 Encriptar contraseña
+  const hashedPassword = await bcrypt.hash(password, 10);
+
+  const newUser = new User({
+    email,
+    password: hashedPassword
+  });
+
+  await newUser.save();
+
   res.json({ message: 'Usuario registrado' });
 });
 
-app.post('/login', (req, res) => {
+app.post('/login', async (req, res) => {
   const { email, password } = req.body;
-  const user = users.find(u => u.email === email && u.password === password);
+
+  const user = await User.findOne({ email });
 
   if (!user) {
     return res.status(400).json({ message: 'Credenciales incorrectas' });
   }
 
-  const token = jwt.sign({ email }, SECRET, { expiresIn: '1h' });
+  // 🔐 Comparar contraseña
+  const isMatch = await bcrypt.compare(password, user.password);
+
+  if (!isMatch) {
+    return res.status(400).json({ message: 'Credenciales incorrectas' });
+  }
+
+  const token = jwt.sign(
+    { email },
+    process.env.JWT_SECRET,
+    { expiresIn: '1h' }
+  );
+
   res.json({ message: 'Login exitoso', token });
 });
 
